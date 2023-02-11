@@ -23,11 +23,11 @@ class ShoppingListMessageProcessor
             return;
         }
         if($command == "ヘルプ" || $command == "へるぷ" || $command == "？" || $command == "help" || $command == "?") {
-            $this->processHelpMessage($userId);
+            $this->processHelpMessage($replyToken);
             return;
         }
         if($command == "クリア" || $command == "くりあ" || $command == "クリアー" || $command == "clear") {
-            $this->processClearMessage($userId);
+            $this->processClearMessage($replyToken, $userId);
             return;
         }
         if($command == "共有解除" || $command == "解除" || $command == "unshare") {
@@ -39,19 +39,21 @@ class ShoppingListMessageProcessor
             return;
         }
 
-        $command = str_replace("　", " ", $command);
+        $command = str_replace("　", " ", $text);
         $splitCmd = explode(" ", $command);
         $command = Util::toNarrowNumber($splitCmd[0]);
+        $command = strtolower($command);
         if ($command == "リスト" || $command == "りすと" || $command == "list") {
             if(count($splitCmd) > 1) {
-                $listId = Util::toNarrowNumber($splitCmd[1]);
-                if(is_numeric($listId) && $listId >= 1 && $listId <= 5) {
-                    $listId = (int)$listId;
+                $listNumber = Util::toNarrowNumber($splitCmd[1]);
+                if(is_numeric($listNumber) && $listNumber >= 1 && $listNumber <= 5) {
+                    $listNumber = (int)$listNumber;
                     $listName = "";
                     if(count($splitCmd) > 2) {
                         $listName = $splitCmd[2];
                     }
-                    $this->processSelectListMessage($userId, $listId, $listName);
+                    $this->processSelectListMessage($replyToken, $userId, $listNumber, $listName);
+                    return;
                 }
             }
         }
@@ -61,17 +63,20 @@ class ShoppingListMessageProcessor
                 if(count($splitCmd) > 1) {
                     $listName = $splitCmd[1];
                 }
-                $this->processSelectListMessage($userId, $i, $listName);
+                $this->processSelectListMessage($replyToken, $userId, $i, $listName);
+                return;
             } 
         }
 
         $numberList = $this->parseNumberList($text);
         if(count($numberList) > 0) {
-            $this->processDeleteMessage($userId, $numberList);
+            $this->processDeleteMessage($replyToken, $userId, $numberList);
+            return;
         }
         
         if($this->checkPasscode($text, 12)) {
             $this->processPasscode($userId, $text);
+            return;
         }
     
         $this->processAddMessage($replyToken, $userId, $text);
@@ -132,12 +137,29 @@ class ShoppingListMessageProcessor
         ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, $returnText);
     }
     
-    function processHelpMessage($userId) {
+    function processHelpMessage($replyToken) {
+        $returnText = "メッセージの送信でリストを作成します。コマンド以外は全てリストに追加されます。\n"
+            . "コマンド一覧：\n"
+            . "「リスト(list)」リストを表示します。\n"
+            . "「リスト番号」リストから指定番号のアイテムを削除します。\n"
+            . "（※コンマ／スペース区切りで複数指定できます。"
+            . "※削除されると番号がふりなおされます。）\n"
+            . "「クリア(clear)」リストを全削除します。\n"
+            . "「リスト１〜５」リストを切替えます。\n"
+            . "（※「リスト１　＜リスト名＞」でリスト名の設定ができます。）";
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, $returnText);
+        }
 
-    }
+    function processClearMessage($replyToken, $userId) {
+        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
+        if($shoppingLists->isEmpty()) {
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, 'リストを空にしました');
+            return;
+        }
 
-    function processClearMessage($userId) {
-
+        $shoppingList = $shoppingLists[0];
+        ShoppingListItem::where('shopping_list_id', $shoppingList->id)->delete();
+        ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, 'リストを空にしました');
     }
 
     function processUnshareMessage($userId) {
@@ -148,12 +170,66 @@ class ShoppingListMessageProcessor
 
     }
 
-    function processSelectListMessage($userId, $listId, $listName) {
+    function processSelectListMessage($replyToken, $userId, $listNumber, $listName) {
+        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
+        if(!$shoppingLists->isEmpty()) {
+            $shoppingList = $shoppingLists[0];
+            $shoppingList->is_active = false;
+            $shoppingList->save();
+        }
 
+        $shoppingLists = ShoppingList::where('userid', $userId)->where('number', $listNumber)->get();
+        if($shoppingLists->isEmpty()) {
+            $shoppingList = ShoppingList::create([
+                'userid' => $userId,
+                'number' => $listNumber,
+                'name' => $listName,
+                'is_active' => true,
+            ]);
+        } else {
+            $shoppingList = $shoppingLists[0];
+            if($listName != '') {
+                $shoppingList->name = $listName;
+            }
+            $shoppingList->is_active = true;
+            $shoppingList->save();
+        }
+        $returnText = '「リスト' . $listNumber . ($shoppingList->name == '' ? '' : '（' . $shoppingList->name . '）') . '」に切替えました';
+        ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, $returnText);
     }
 
-    function processDeleteMessage($userId, $numberList) {
+    function processDeleteMessage($replyToken, $userId, $numberList) {
+        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
+        if($shoppingLists->isEmpty()) {
+            return;
+        }
 
+        $returnText = '';
+        $shoppingList = $shoppingLists[0];
+        foreach($numberList as $itemNumber) {
+            $items = ShoppingListItem::where('shopping_list_id', $shoppingList->id)->where('number', $itemNumber)->get();
+            if($returnText != '') {
+                $returnText .= "\n";
+            }
+            if($items->isEmpty()) {
+                $returnText .= '#' . $itemNumber . ' はありません';
+            } else {
+                $returnText .= '「' . $items[0]->name . '」を削除しました';
+                $items[0]->delete();
+            }
+        }
+
+        ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, $returnText);
+
+        $items = ShoppingListItem::where('shopping_list_id', $shoppingList->id)->orderBy('number')->get();
+        $itemNumber = 1;
+        foreach($items as $item) {
+            $item->number = $itemNumber;
+            $item->save();
+            $itemNumber += 1;
+        }
+
+        $this->processListMessage($replyToken, $userId);
     }
 
     function processPasscode($userId, $text) {
