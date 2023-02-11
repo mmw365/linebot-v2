@@ -212,4 +212,7 @@ return [
         // 'ExampleClass' => App\Example\ExampleClass::class,
     ])->toArray(),
 
+    'channel_token_shoppinglist' => env('CHNNEL_TOKEN_SHOPPINGLIST'),
+    'line_endpoint_url_reply' => env('LINE_ENDPOINT_URL_REPLY'),
+
 ];
