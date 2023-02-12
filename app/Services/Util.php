@@ -19,4 +19,19 @@ class Util
         $str = str_replace("９", "9", $str);
         return $str;
     }
+
+    public static function createPasscode($len) {
+        // First char should be non numeric
+        $r = random_int(0, 25);
+        $code = chr($r + 65);
+        for($i = 1; $i < $len; $i++) {
+            $r = random_int(0, 35);
+            if($r < 10) {
+                $code .= $r;
+            } else {
+                $code .= chr($r + 55);
+            }
+        }
+        return $code;
+    }
 }

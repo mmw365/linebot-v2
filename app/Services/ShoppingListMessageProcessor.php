@@ -5,6 +5,9 @@ namespace App\Services;
 use App\Events\ReplyTextMessageCreated;
 use App\Models\ShoppingList;
 use App\Models\ShoppingListItem;
+use App\Models\ShoppingListShareCode;
+use App\Models\ShoppingListShareInfo;
+use Carbon\Carbon;
 
 class ShoppingListMessageProcessor
 {
@@ -31,11 +34,11 @@ class ShoppingListMessageProcessor
             return;
         }
         if($command == "共有解除" || $command == "解除" || $command == "unshare") {
-            $this->processUnshareMessage($userId);
+            $this->processUnshareMessage($replyToken, $userId);
             return;
         }
         if($command == "共有" || $command == "シェア" || $command == "share") {
-            $this->processShareMessage($userId);
+            $this->processShareMessage($replyToken, $userId);
             return;
         }
 
@@ -75,7 +78,7 @@ class ShoppingListMessageProcessor
         }
         
         if($this->checkPasscode($text, 12)) {
-            $this->processPasscode($userId, $text);
+            $this->processPasscode($replyToken, $userId, $text);
             return;
         }
     
@@ -83,17 +86,7 @@ class ShoppingListMessageProcessor
     }
 
     function processAddMessage($replyToken, $userId, $text) {
-        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
-        if($shoppingLists->isEmpty()) {
-            $shoppingList = ShoppingList::create([
-                'userid' => $userId,
-                'number' => 1,
-                'name' => '',
-                'is_active' => true,
-            ]);
-        } else {
-            $shoppingList = $shoppingLists[0];
-        }
+        $shoppingList = $this->getActiveShoppingListOrCreate($userId);
 
         $itemNumber = ShoppingListItem::where('shopping_list_id', $shoppingList->id)->max('number');
         if(is_null($itemNumber)) {
@@ -113,13 +106,17 @@ class ShoppingListMessageProcessor
     }
 
     function processListMessage($replyToken, $userId) {
-        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
-        if($shoppingLists->isEmpty()) {
+        $shoppingList = $this->getActiveShoppingListOrNull($userId);
+        if(is_null($shoppingList)) {
             ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, 'リストは空です');
             return;
         }
 
-        $shoppingList = $shoppingLists[0];
+        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        if(!is_null($shareInfo)) {
+            $shoppingList = ShoppingList::find($shareInfo->ref_shopping_list_id);
+        }
+
         $items = ShoppingListItem::where('shopping_list_id', $shoppingList->id)->orderBy('number')->get();
         if($items->isEmpty()) {
             ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, 'リストは空です');
@@ -151,61 +148,87 @@ class ShoppingListMessageProcessor
         }
 
     function processClearMessage($replyToken, $userId) {
-        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
-        if($shoppingLists->isEmpty()) {
+        $shoppingList = $this->getActiveShoppingListOrNull($userId);
+        if(is_null($shoppingList)) {
             ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, 'リストを空にしました');
             return;
         }
 
-        $shoppingList = $shoppingLists[0];
         ShoppingListItem::where('shopping_list_id', $shoppingList->id)->delete();
         ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, 'リストを空にしました');
     }
 
-    function processUnshareMessage($userId) {
+    function processUnshareMessage($replyToken, $userId) {
+        $shoppingList = $this->getActiveShoppingListOrNull($userId);
+        if(is_null($shoppingList)) {
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '共有リストではありません');
+            return;
+        }
 
+        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        if(!is_null($shareInfo)) {
+            // send stop subscribe event
+            $shareInfo->delete();
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '共有を解除しました');
+            return;
+        }
+
+        $shareInfos = ShoppingListShareInfo::where('ref_shopping_list_id', $shoppingList->id)->get();
+        if(!$shareInfos->isEmpty()) {
+            foreach($shareInfos as $shareInfo) {
+                // send stop publish event
+                $shareInfo->delete();
+            }
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '共有を解除しました');
+            return;
+        }
+
+        ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '共有リストではありません');
     }
 
-    function processShareMessage($userId) {
-
+    function processShareMessage($replyToken, $userId) {
+        $shoppingList = $this->getActiveShoppingListOrCreate($userId);
+        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        if(!is_null($shareInfo)) {
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '共有リストは共有できません');
+            return;
+        }
+        $code = Util::createPasscode(12);
+        ShoppingListShareCode::create([
+            'code' => $code,
+            'shopping_list_id' => $shoppingList->id,
+            'expires_at' => Carbon::now()->addMinutes(30),
+        ]);
+        ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken,
+                "リストを共有したい友達に、下記のコードを渡してください\n" . $code);
     }
 
     function processSelectListMessage($replyToken, $userId, $listNumber, $listName) {
-        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
-        if(!$shoppingLists->isEmpty()) {
-            $shoppingList = $shoppingLists[0];
+        $shoppingList = $this->getActiveShoppingListOrNull($userId);
+        if(!is_null($shoppingList)) {
             $shoppingList->is_active = false;
             $shoppingList->save();
         }
 
-        $shoppingLists = ShoppingList::where('userid', $userId)->where('number', $listNumber)->get();
-        if($shoppingLists->isEmpty()) {
-            $shoppingList = ShoppingList::create([
-                'userid' => $userId,
-                'number' => $listNumber,
-                'name' => $listName,
-                'is_active' => true,
-            ]);
-        } else {
-            $shoppingList = $shoppingLists[0];
-            if($listName != '') {
-                $shoppingList->name = $listName;
-            }
-            $shoppingList->is_active = true;
-            $shoppingList->save();
+        $shoppingList = $this->getShoppingListByNumberOrCreate($userId, $listNumber);
+        if($listName != '') {
+            $shoppingList->name = $listName;
         }
+        $shoppingList->is_active = true;
+        $shoppingList->save();
+
         $returnText = '「リスト' . $listNumber . ($shoppingList->name == '' ? '' : '（' . $shoppingList->name . '）') . '」に切替えました';
         ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, $returnText);
+        $this->processListMessage($replyToken, $userId);
     }
 
     function processDeleteMessage($replyToken, $userId, $numberList) {
-        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
-        if($shoppingLists->isEmpty()) {
+        $shoppingList = $this->getActiveShoppingListOrNull($userId);
+        if(is_null($shoppingList)) {
             return;
         }
 
         $returnText = '';
-        $shoppingList = $shoppingLists[0];
         foreach($numberList as $itemNumber) {
             $items = ShoppingListItem::where('shopping_list_id', $shoppingList->id)->where('number', $itemNumber)->get();
             if($returnText != '') {
@@ -232,8 +255,32 @@ class ShoppingListMessageProcessor
         $this->processListMessage($replyToken, $userId);
     }
 
-    function processPasscode($userId, $text) {
+    function processPasscode($replyToken, $userId, $text) {
+        $shoppingList = $this->getActiveShoppingListOrCreate($userId);
+        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        if(!is_null($shareInfo)) {
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, "共有リストを使用（参照）中です\n解除するか他のリストを選択してください");
+            return;
+        }
+        $shareInfo = ShoppingListShareInfo::where('ref_shopping_list_id', $shoppingList->id)->first();
+        if(!is_null($shareInfo)) {
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, "リストが共有（公開）されているため設定できません\n解除するか他のリストを選択してください");
+            return;
+        }
 
+        ShoppingListShareCode::where('expires_at', '<', Carbon::now())->delete();
+        $shareCode = ShoppingListShareCode::where('code', $text)->first();
+        if(is_null($shareCode)) {
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '有効でないコードです');
+            return;
+        }
+        ShoppingListShareInfo::create([
+            'shopping_list_id' => $shoppingList->id,
+            'ref_shopping_list_id' => $shareCode->shopping_list_id,
+        ]);
+
+        ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '共有を設定しました');
+        $this->processListMessage($replyToken, $userId);
     }
 
     function parseNumberList($input) {
@@ -263,5 +310,44 @@ class ShoppingListMessageProcessor
             return 0;
         }
         return preg_match('/[A-Z0-9]{' . $len . '}/', $code);
+    }
+
+    function getActiveShoppingListOrNull($userId) {
+        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
+        if($shoppingLists->isEmpty()) {
+            return null;
+        } else {
+            return $shoppingLists[0];
+        }
+    }
+
+    function getActiveShoppingListOrCreate($userId) {
+        $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
+        if($shoppingLists->isEmpty()) {
+            $shoppingList = ShoppingList::create([
+                'userid' => $userId,
+                'number' => 1,
+                'name' => '',
+                'is_active' => true,
+            ]);
+        } else {
+            $shoppingList = $shoppingLists[0];
+        }
+        return $shoppingList;
+    }
+
+    function getShoppingListByNumberOrCreate($userId, $listNumber) {
+        $shoppingLists = ShoppingList::where('userid', $userId)->where('number', $listNumber)->get();
+        if($shoppingLists->isEmpty()) {
+            $shoppingList = ShoppingList::create([
+                'userid' => $userId,
+                'number' => $listNumber,
+                'name' => '',
+                'is_active' => true,
+            ]);
+        } else {
+            $shoppingList = $shoppingLists[0];
+        }
+        return $shoppingList;
     }
 }

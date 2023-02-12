@@ -5,7 +5,11 @@ namespace Tests\Feature;
 use App\Listeners\ReplyTextMessageSender;
 use App\Models\ShoppingList;
 use App\Models\ShoppingListItem;
+use App\Models\ShoppingListShareCode;
+use App\Models\ShoppingListShareInfo;
 use App\Services\MessageApiClient;
+use App\Services\Util;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\WithFaker;
 use Mockery\MockInterface;
@@ -15,7 +19,7 @@ class ShoppingListApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function createTextMessageByDummyUser($text) {
+    private function createTextMessageWithUserId($userid, $text) {
         return [
             'destination' => '',
             'events' => [[
@@ -24,11 +28,15 @@ class ShoppingListApiTest extends TestCase
                 'webhookEventId' => '',
                 'deliveryContext' => ['isRedelivery' => 'false'],
                 'timestamp' => 0,
-                'source' => ['type' => 'user', 'userId' => 'dummy-user-id'],
+                'source' => ['type' => 'user', 'userId' => $userid],
                 'replyToken' => 'dummy-reply-token',
                 'mode' => 'active'
             ]]
         ];
+    }
+
+    private function createTextMessageByDummyUser($text) {
+        return $this->createTextMessageWithUserId('dummy-user-id', $text);
     }
 
     public function test_help_message_is_displayed()
@@ -76,7 +84,6 @@ class ShoppingListApiTest extends TestCase
         $response->assertStatus(200);
         $response->assertExactJson([]);
 
-        //ShoppingList::count()
         $this->assertDatabaseCount('shopping_lists', 1);
         $this->assertDatabaseCount('shopping_list_items', 1);
     }
@@ -107,7 +114,6 @@ class ShoppingListApiTest extends TestCase
         $response->assertStatus(200);
         $response->assertExactJson([]);
 
-        //ShoppingList::count()
         $this->assertDatabaseCount('shopping_lists', 1);
         $this->assertDatabaseCount('shopping_list_items', 2);
     }
@@ -170,16 +176,24 @@ class ShoppingListApiTest extends TestCase
             'is_active' => true,
         ]);
 
-        ShoppingList::create([
+        $shoppingList = ShoppingList::create([
             'userid' => 'dummy-user-id',
             'number' => 2,
             'name' => '',
             'is_active' => false,
         ]);
+        
+        ShoppingListItem::create([
+            'shopping_list_id' => $shoppingList->id,
+            'number' => 1,
+            'name' => 'TEST1',
+        ]);
 
         $mock = $this->mock(MessageApiClient::class);
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト1」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','リストは空です');
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト2」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','#1 TEST1');
 
         $inMessage = $this->createTextMessageByDummyUser('list1');
 
@@ -214,7 +228,9 @@ class ShoppingListApiTest extends TestCase
 
         $mock = $this->mock(MessageApiClient::class);
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト1（TEST1）」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','リストは空です');
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト2（TEST2）」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','リストは空です');
 
         $inMessage = $this->createTextMessageByDummyUser('list1');
         $response = $this->postJson('/api/shoppinglist', $inMessage);
@@ -247,7 +263,9 @@ class ShoppingListApiTest extends TestCase
 
         $mock = $this->mock(MessageApiClient::class);
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト1（TEST1）」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','リストは空です');
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト2（TEST2）」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','リストは空です');
 
         $inMessage = $this->createTextMessageByDummyUser('list1 TEST1');
         $response = $this->postJson('/api/shoppinglist', $inMessage);
@@ -266,7 +284,9 @@ class ShoppingListApiTest extends TestCase
 
         $mock = $this->mock(MessageApiClient::class);
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト1」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','リストは空です');
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト2」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','リストは空です');
 
         $this->assertDatabaseCount('shopping_lists', 0);
 
@@ -289,7 +309,9 @@ class ShoppingListApiTest extends TestCase
 
         $mock = $this->mock(MessageApiClient::class);
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト1（TEST1）」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','リストは空です');
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','「リスト2（TEST2）」に切替えました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','リストは空です');
 
         $this->assertDatabaseCount('shopping_lists', 0);
 
@@ -417,5 +439,332 @@ class ShoppingListApiTest extends TestCase
         $this->assertDatabaseCount('shopping_list_items', 0);
     }
 
+    public function test_process_share_request_returns_share_code()
+    {
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once();
+
+        $this->assertDatabaseCount('shopping_list_share_codes', 0);
+
+        $inMessage = $this->createTextMessageByDummyUser('share');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+
+        $this->assertDatabaseCount('shopping_list_share_codes', 1);
+    }
+
+
+    public function test_process_share_request_returns_error_for_shared_list()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $shoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        $refShoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id-2',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListShareInfo::create([
+            'shopping_list_id' => $shoppingList->id,
+            'ref_shopping_list_id' => $refShoppingList->id,
+        ]);
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','共有リストは共有できません');
+
+        $inMessage = $this->createTextMessageByDummyUser('share');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+    }
+
+
+    public function test_process_share_code_and_add_new_share()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $shoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        $refShoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id-2',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListItem::create([
+            'shopping_list_id' => $refShoppingList->id,
+            'number' => 1,
+            'name' => 'TEST1',
+        ]);
+
+        ShoppingListShareCode::create([
+            'code' => 'AAAAAAAAAAAA',
+            'shopping_list_id' => $refShoppingList->id,
+            'expires_at' => Carbon::now()->addMinutes(30),
+        ]);
+
+        $this->assertDatabaseCount('shopping_list_share_codes', 1);
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','共有を設定しました');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','#1 TEST1');
+
+        $inMessage = $this->createTextMessageByDummyUser('AAAAAAAAAAAA');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+
+        $this->assertDatabaseCount('shopping_list_share_codes', 1);
+    }
+
+    public function test_process_share_code_with_expired_fails()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $refShoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id-2',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListShareCode::create([
+            'code' => 'AAAAAAAAAAAA',
+            'shopping_list_id' => $refShoppingList->id,
+            'expires_at' => Carbon::now()->subMinutes(30),
+        ]);
+
+        $this->assertDatabaseCount('shopping_list_share_codes', 1);
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token','有効でないコードです');
+
+        $inMessage = $this->createTextMessageByDummyUser('AAAAAAAAAAAA');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+
+        $this->assertDatabaseCount('shopping_list_share_codes', 0);
+    }
+
+    public function test_process_share_code_for_referring_list_fails()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $shoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        $refShoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id-2',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListShareInfo::create([
+            'shopping_list_id' => $shoppingList->id,
+            'ref_shopping_list_id' => $refShoppingList->id,
+        ]);
+
+        $refShoppingList2 = ShoppingList::create([
+            'userid' => 'dummy-user-id-3',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListShareCode::create([
+            'code' => 'AAAAAAAAAAAA',
+            'shopping_list_id' => $refShoppingList2->id,
+            'expires_at' => Carbon::now()->addMinutes(30),
+        ]);
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token',
+                "共有リストを使用（参照）中です\n解除するか他のリストを選択してください");
+
+        $inMessage = $this->createTextMessageByDummyUser('AAAAAAAAAAAA');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+    }
+
+    public function test_process_share_code_for_referred_list_fails()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $shoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        $refByShoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id-2',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListShareInfo::create([
+            'shopping_list_id' => $refByShoppingList->id,
+            'ref_shopping_list_id' => $shoppingList->id,
+        ]);
+
+        $refShoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id-3',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListShareCode::create([
+            'code' => 'AAAAAAAAAAAA',
+            'shopping_list_id' => $refShoppingList->id,
+            'expires_at' => Carbon::now()->addMinutes(30),
+        ]);
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token',
+                "リストが共有（公開）されているため設定できません\n解除するか他のリストを選択してください");
+
+        $inMessage = $this->createTextMessageByDummyUser('AAAAAAAAAAAA');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+    }
+
+    public function test_process_unshare_request_and_stop_referring_list()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $shoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        $refShoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id-2',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListShareInfo::create([
+            'shopping_list_id' => $shoppingList->id,
+            'ref_shopping_list_id' => $refShoppingList->id,
+        ]);
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', '共有を解除しました');
+
+        $this->assertDatabaseCount('shopping_list_share_infos', 1);
+
+        $inMessage = $this->createTextMessageByDummyUser('unshare');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+
+        $this->assertDatabaseCount('shopping_list_share_infos', 0);
+    }
+
+    public function test_process_unshare_request_and_stop_referred_list()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $shoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        $refByShoppingList1 = ShoppingList::create([
+            'userid' => 'dummy-user-id-2',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        $refByShoppingList2 = ShoppingList::create([
+            'userid' => 'dummy-user-id-3',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListShareInfo::create([
+            'shopping_list_id' => $refByShoppingList1->id,
+            'ref_shopping_list_id' => $shoppingList->id,
+        ]);
+
+        ShoppingListShareInfo::create([
+            'shopping_list_id' => $refByShoppingList2->id,
+            'ref_shopping_list_id' => $shoppingList->id,
+        ]);
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', '共有を解除しました');
+
+        $this->assertDatabaseCount('shopping_list_share_infos', 2);
+
+        $inMessage = $this->createTextMessageByDummyUser('unshare');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+
+        $this->assertDatabaseCount('shopping_list_share_infos', 0);
+    }
+
+    public function test_process_unshare_request_for_not_shared_list_fails()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->twice()->with($channelToken, 'dummy-reply-token', '共有リストではありません');
+
+        $inMessage = $this->createTextMessageByDummyUser('unshare');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+
+        $this->assertDatabaseCount('shopping_lists', 0);
+        
+        ShoppingList::create([
+            'userid' => 'dummy-user-id',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+        
+        $this->assertDatabaseCount('shopping_lists', 1);
+
+        $inMessage = $this->createTextMessageByDummyUser('unshare');
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+    }
 
 }
