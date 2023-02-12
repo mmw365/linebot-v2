@@ -2,6 +2,7 @@
  
 namespace App\Services;
 
+use App\Events\PushTextMessageCreated;
 use App\Events\ReplyTextMessageCreated;
 use App\Models\ShoppingList;
 use App\Models\ShoppingListItem;
@@ -117,19 +118,7 @@ class ShoppingListMessageProcessor
             $shoppingList = ShoppingList::find($shareInfo->ref_shopping_list_id);
         }
 
-        $items = ShoppingListItem::where('shopping_list_id', $shoppingList->id)->orderBy('number')->get();
-        if($items->isEmpty()) {
-            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, 'リストは空です');
-            return;
-        }
-
-        $returnText = "";
-        foreach($items as $item) {
-            if($returnText != "") {
-                $returnText .= "\n";
-            }
-            $returnText .= "#" . $item->number . " " . $item->name;
-        }
+        $returnText = $this->formatListItems($shoppingList);
 
         ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, $returnText);
     }
@@ -144,8 +133,8 @@ class ShoppingListMessageProcessor
             . "「クリア(clear)」リストを全削除します。\n"
             . "「リスト１〜５」リストを切替えます。\n"
             . "（※「リスト１　＜リスト名＞」でリスト名の設定ができます。）";
-            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, $returnText);
-        }
+        ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, $returnText);
+    }
 
     function processClearMessage($replyToken, $userId) {
         $shoppingList = $this->getActiveShoppingListOrNull($userId);
@@ -154,8 +143,15 @@ class ShoppingListMessageProcessor
             return;
         }
 
+        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        if(!is_null($shareInfo)) {
+            ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '共有リストのクリアはできません');
+            return;
+        }
+
         ShoppingListItem::where('shopping_list_id', $shoppingList->id)->delete();
         ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, 'リストを空にしました');
+        $this->sendUpdateNotification($shoppingList);
     }
 
     function processUnshareMessage($replyToken, $userId) {
@@ -167,7 +163,8 @@ class ShoppingListMessageProcessor
 
         $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
         if(!is_null($shareInfo)) {
-            // send stop subscribe event
+            $refShoppingList = ShoppingList::find($shareInfo->ref_shopping_list_id);
+            PushTextMessageCreated::dispatch($this->channelToken, $refShoppingList->userid, 'リスト' . $refShoppingList->number . '（公開中）の共有が解除されました');
             $shareInfo->delete();
             ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '共有を解除しました');
             return;
@@ -176,7 +173,8 @@ class ShoppingListMessageProcessor
         $shareInfos = ShoppingListShareInfo::where('ref_shopping_list_id', $shoppingList->id)->get();
         if(!$shareInfos->isEmpty()) {
             foreach($shareInfos as $shareInfo) {
-                // send stop publish event
+                $refByShoppingList = ShoppingList::find($shareInfo->shopping_list_id);
+                PushTextMessageCreated::dispatch($this->channelToken, $refByShoppingList->userid, 'リスト' . $refByShoppingList->number . '（参照中）の共有が解除されました');
                 $shareInfo->delete();
             }
             ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, '共有を解除しました');
@@ -228,9 +226,16 @@ class ShoppingListMessageProcessor
             return;
         }
 
+        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        if(!is_null($shareInfo)) {
+            $shoppingListToUpdate = ShoppingList::find($shareInfo->ref_shopping_list_id);
+        } else {
+            $shoppingListToUpdate = $shoppingList;
+        }
+
         $returnText = '';
         foreach($numberList as $itemNumber) {
-            $items = ShoppingListItem::where('shopping_list_id', $shoppingList->id)->where('number', $itemNumber)->get();
+            $items = ShoppingListItem::where('shopping_list_id', $shoppingListToUpdate->id)->where('number', $itemNumber)->get();
             if($returnText != '') {
                 $returnText .= "\n";
             }
@@ -244,7 +249,7 @@ class ShoppingListMessageProcessor
 
         ReplyTextMessageCreated::dispatch($this->channelToken, $replyToken, $returnText);
 
-        $items = ShoppingListItem::where('shopping_list_id', $shoppingList->id)->orderBy('number')->get();
+        $items = ShoppingListItem::where('shopping_list_id', $shoppingListToUpdate->id)->orderBy('number')->get();
         $itemNumber = 1;
         foreach($items as $item) {
             $item->number = $itemNumber;
@@ -253,6 +258,7 @@ class ShoppingListMessageProcessor
         }
 
         $this->processListMessage($replyToken, $userId);
+        $this->sendUpdateNotification($shoppingList);
     }
 
     function processPasscode($replyToken, $userId, $text) {
@@ -312,7 +318,7 @@ class ShoppingListMessageProcessor
         return preg_match('/[A-Z0-9]{' . $len . '}/', $code);
     }
 
-    function getActiveShoppingListOrNull($userId) {
+    private function getActiveShoppingListOrNull($userId) {
         $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
         if($shoppingLists->isEmpty()) {
             return null;
@@ -321,7 +327,7 @@ class ShoppingListMessageProcessor
         }
     }
 
-    function getActiveShoppingListOrCreate($userId) {
+    private function getActiveShoppingListOrCreate($userId) {
         $shoppingLists = ShoppingList::where('userid', $userId)->where('is_active', true)->get();
         if($shoppingLists->isEmpty()) {
             $shoppingList = ShoppingList::create([
@@ -336,7 +342,7 @@ class ShoppingListMessageProcessor
         return $shoppingList;
     }
 
-    function getShoppingListByNumberOrCreate($userId, $listNumber) {
+    private function getShoppingListByNumberOrCreate($userId, $listNumber) {
         $shoppingLists = ShoppingList::where('userid', $userId)->where('number', $listNumber)->get();
         if($shoppingLists->isEmpty()) {
             $shoppingList = ShoppingList::create([
@@ -349,5 +355,51 @@ class ShoppingListMessageProcessor
             $shoppingList = $shoppingLists[0];
         }
         return $shoppingList;
+    }
+
+    private function sendUpdateNotification($shoppingList) {
+        if(is_null($shoppingList)) {
+            return;
+        }
+        $pushTest = "リストが更新されました\n";
+
+        // when this is refering to shared list
+        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        if(!is_null($shareInfo)) {
+            $refShoppingList =  ShoppingList::find($shareInfo->ref_shopping_list_id);
+            if($refShoppingList->is_active) {
+                $pushTest .= $this->formatListItems($refShoppingList);
+                PushTextMessageCreated::dispatch($this->channelToken, $refShoppingList->userid, $pushTest);
+            }
+            return;
+        }
+
+        // when this list is referred by other users
+        $pushTest .= $this->formatListItems($shoppingList);
+        $shareInfos = ShoppingListShareInfo::where('ref_shopping_list_id', $shoppingList->id)->get();
+        foreach($shareInfos as $shareInfo) {
+            $refByShoppingList =  ShoppingList::find($shareInfo->shopping_list_id);
+            if($refByShoppingList->is_active) {
+                PushTextMessageCreated::dispatch($this->channelToken, $refByShoppingList->userid, $pushTest);
+            }
+        }
+    }
+
+    private function formatListItems($shoppingList)
+    {
+        $items = ShoppingListItem::where('shopping_list_id', $shoppingList->id)->orderBy('number')->get();
+        if($items->isEmpty()) {
+            return 'リストは空です';
+        }
+
+        $returnText = "";
+        foreach($items as $item) {
+            if($returnText != "") {
+                $returnText .= "\n";
+            }
+            $returnText .= "#" . $item->number . " " . $item->name;
+        }
+
+        return $returnText;
     }
 }

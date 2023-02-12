@@ -214,5 +214,6 @@ return [
 
     'channel_token_shoppinglist' => env('CHNNEL_TOKEN_SHOPPINGLIST'),
     'line_endpoint_url_reply' => env('LINE_ENDPOINT_URL_REPLY'),
-
+    'line_endpoint_url_push' => env('LINE_ENDPOINT_URL_PUSH'),
+    
 ];

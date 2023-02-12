@@ -18,6 +18,9 @@ class EventServiceProvider extends ServiceProvider
         'App\Events\ReplyTextMessageCreated' => [
             'App\Listeners\ReplyTextMessageSender',
         ],
+        'App\Events\PushTextMessageCreated' => [
+            'App\Listeners\PushTextMessageSender',
+        ],
     ];
 
     /**
