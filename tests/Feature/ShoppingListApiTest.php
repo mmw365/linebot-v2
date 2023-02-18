@@ -116,6 +116,86 @@ class ShoppingListApiTest extends TestCase
         $this->assertDatabaseCount('shopping_list_items', 2);
     }
 
+    public function test_new_item_added_to_referring_shopping_list()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $shoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        $refShoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id-2',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListItem::create([
+            'shopping_list_id' => $refShoppingList->id,
+            'number' => 1,
+            'name' => 'TEST',
+        ]);
+
+        ShoppingListShareInfo::create([
+            'shopping_list_id' => $shoppingList->id,
+            'ref_shopping_list_id' => $refShoppingList->id,
+        ]);
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', '「TEST2」を追加しました。');
+        $mock->shouldReceive('sendPushTextMessage')->once()->with($channelToken, 'dummy-user-id-2', "リストが更新されました\n#1 TEST\n#2 TEST2");
+
+        $inMessage = $this->createTextMessageByDummyUser('TEST2');
+
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+    }
+
+    public function test_new_item_added_to_referred_shopping_list()
+    {
+        $channelToken = config('app.channel_token_shoppinglist');
+
+        $shoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListItem::create([
+            'shopping_list_id' => $shoppingList->id,
+            'number' => 1,
+            'name' => 'TEST',
+        ]);
+
+        $refByShoppingList = ShoppingList::create([
+            'userid' => 'dummy-user-id-2',
+            'number' => 1,
+            'name' => '',
+            'is_active' => true,
+        ]);
+
+        ShoppingListShareInfo::create([
+            'shopping_list_id' => $refByShoppingList->id,
+            'ref_shopping_list_id' => $shoppingList->id,
+        ]);
+
+        $mock = $this->mock(MessageApiClient::class);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', '「TEST2」を追加しました。');
+        $mock->shouldReceive('sendPushTextMessage')->once()->with($channelToken, 'dummy-user-id-2', "リストが更新されました\n#1 TEST\n#2 TEST2");
+
+        $inMessage = $this->createTextMessageByDummyUser('TEST2');
+
+        $response = $this->postJson('/api/shoppinglist', $inMessage);
+        $response->assertStatus(200);
+        $response->assertExactJson([]);
+    }
+
     public function test_show_list_to_empty_shopping_list()
     {
         $channelToken = config('app.channel_token_shoppinglist');
