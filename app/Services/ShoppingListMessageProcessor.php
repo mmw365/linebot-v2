@@ -118,19 +118,22 @@ class ShoppingListMessageProcessor
 
         $shareInfo = $shoppingList->shareInfo;
         if(!is_null($shareInfo)) {
-            $shoppingList = $shareInfo->refShoppingList;
-        }
+            $shoppingListToUpdate = $shareInfo->refShoppingList;
+        } else {
+            $shoppingListToUpdate = $shoppingList;
+        }        
 
-        $itemNumber = $this->getNextShoppingListItemNumber($shoppingList);
+        $itemNumber = $this->getNextShoppingListItemNumber($shoppingListToUpdate);
 
         ShoppingListItem::create([
-            'shopping_list_id' => $shoppingList->id,
+            'shopping_list_id' => $shoppingListToUpdate->id,
             'number' => $itemNumber,
             'name' => $text,
         ]);
 
         $returnText = '「' . $text . '」を追加しました。';
         $this->sendReplyMessage($returnText);
+        $this->sendUpdateNotification($shoppingList);
     }
 
     function processListMessage() {
