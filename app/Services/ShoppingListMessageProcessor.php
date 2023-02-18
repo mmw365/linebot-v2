@@ -137,10 +137,13 @@ class ShoppingListMessageProcessor
     }
 
     function processListMessage() {
+        $this->sendReplyMessage($this->getListDescription());
+    }
+
+    function getListDescription() {
         $shoppingList = $this->getActiveShoppingListOrNull($this->userId);
         if(is_null($shoppingList)) {
-            $this->sendReplyMessage('リストは空です');
-            return;
+            return 'リストは空です';
         }
 
         $shareInfo = $shoppingList->shareInfo;
@@ -148,8 +151,7 @@ class ShoppingListMessageProcessor
             $shoppingList = $shareInfo->refShoppingList;
         }
 
-        $returnText = $this->formatListItems($shoppingList);
-        $this->sendReplyMessage($returnText);
+        return $this->formatListItems($shoppingList);
     }
     
     function processHelpMessage() {
@@ -262,23 +264,23 @@ class ShoppingListMessageProcessor
             $shoppingListToUpdate = $shoppingList;
         }
 
-        $returnText = '';
+        $returnText1 = '';
         foreach($numberList as $itemNumber) {
             $items = ShoppingListItem::where('shopping_list_id', $shoppingListToUpdate->id)->where('number', $itemNumber)->get();
-            if($returnText != '') {
-                $returnText .= "\n";
+            if($returnText1 != '') {
+                $returnText1 .= "\n";
             }
             if($items->isEmpty()) {
-                $returnText .= '#' . $itemNumber . ' はありません';
+                $returnText1 .= '#' . $itemNumber . ' はありません';
             } else {
-                $returnText .= '「' . $items[0]->name . '」を削除しました';
+                $returnText1 .= '「' . $items[0]->name . '」を削除しました';
                 $items[0]->delete();
             }
         }
 
-        $this->sendReplyMessage($returnText);
         $this->resetShoppingListItemNumber($shoppingListToUpdate);
-        $this->processListMessage();
+        $returnText2 = $this->getListDescription();
+        $this->sendReplyMessage([$returnText1, $returnText2]);
         $this->sendUpdateNotification($shoppingList);
     }
 

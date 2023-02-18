@@ -7,14 +7,27 @@ use Illuminate\Support\Facades\Http;
 class MessageApiClient
 {
     function sendReplyTextMessage($channelToken, $replyToken, $text) {
+        $messages = [];
+
+        if(is_array($text)) {
+            foreach($text as $t) {
+                $messages[] = [
+                    'type' => 'text',
+                    'text' => $t
+                ];
+            }
+        } else {
+            $messages[] = [
+                'type' => 'text',
+                'text' => $text
+            ];
+        }
+
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $channelToken,
         ])->post(config('app.line_endpoint_url_reply'), [
             'replyToken' => $replyToken,
-            'messages' => [[
-                'type' => 'text',
-                'text' => $text
-            ]],
+            'messages' => $messages,
         ]);
     }
 

@@ -559,11 +559,9 @@ class ShoppingListApiTest extends TestCase
 
         $mock = $this->mock(MessageApiClient::class);
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', "#1 TEST1\n#2 TEST2\n#3 TEST3");
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', '「TEST2」を削除しました');
-        $mock->shouldReceive('sendReplyTextMessage')->twice()->with($channelToken, 'dummy-reply-token', "#1 TEST1\n#2 TEST3");
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', '#3 はありません');
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', "「TEST1」を削除しました\n「TEST3」を削除しました");
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', 'リストは空です');
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', ['「TEST2」を削除しました', "#1 TEST1\n#2 TEST3"]);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', ['#3 はありません', "#1 TEST1\n#2 TEST3"]);
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', ["「TEST1」を削除しました\n「TEST3」を削除しました", 'リストは空です']);
 
         $this->assertDatabaseCount('shopping_list_items', 3);
 
@@ -637,11 +635,9 @@ class ShoppingListApiTest extends TestCase
 
         $mock = $this->mock(MessageApiClient::class);
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', "#1 TEST1\n#2 TEST2\n#3 TEST3");
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', '「TEST2」を削除しました');
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', "#1 TEST1\n#2 TEST3");
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', ['「TEST2」を削除しました', "#1 TEST1\n#2 TEST3"]);
         $mock->shouldReceive('sendPushTextMessage')->once()->with($channelToken, 'dummy-user-id-2', "リストが更新されました\n#1 TEST1\n#2 TEST3");
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', '「TEST1」を削除しました');
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', "#1 TEST3");
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', ['「TEST1」を削除しました', '#1 TEST3']);
 
         $inMessage = $this->createTextMessageByDummyUser('list');
         $response = $this->postJson('/api/shoppinglist', $inMessage);
@@ -706,8 +702,7 @@ class ShoppingListApiTest extends TestCase
 
         $mock = $this->mock(MessageApiClient::class);
         $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', "#1 TEST1\n#2 TEST2\n#3 TEST3");
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', '「TEST2」を削除しました');
-        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', "#1 TEST1\n#2 TEST3");
+        $mock->shouldReceive('sendReplyTextMessage')->once()->with($channelToken, 'dummy-reply-token', ['「TEST2」を削除しました', "#1 TEST1\n#2 TEST3"]);
         $mock->shouldReceive('sendPushTextMessage')->once()->with($channelToken, 'dummy-user-id-2', "リストが更新されました\n#1 TEST1\n#2 TEST3");
 
         $inMessage = $this->createTextMessageByDummyUser('list');
