@@ -115,12 +115,13 @@ class ShoppingListMessageProcessor
 
     function processAddMessage($text) {
         $shoppingList = $this->getActiveShoppingListOrCreate($this->userId);
-        $itemNumber = $this->getNextShoppingListItemNumber($shoppingList);
 
         $shareInfo = $shoppingList->shareInfo;
         if(!is_null($shareInfo)) {
             $shoppingList = $shareInfo->refShoppingList;
         }
+
+        $itemNumber = $this->getNextShoppingListItemNumber($shoppingList);
 
         ShoppingListItem::create([
             'shopping_list_id' => $shoppingList->id,
