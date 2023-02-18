@@ -14,4 +14,14 @@ class ShoppingList extends Model
         'name',
         'is_active',
     ];
+
+    public function shareInfo()
+    {
+        return $this->hasOne(ShoppingListShareInfo::class);
+    }
+    
+    public function refShareInfos()
+    {
+        return $this->hasMany(ShoppingListShareInfo::class, 'ref_shopping_list_id');
+    }
 }

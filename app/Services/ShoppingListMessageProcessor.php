@@ -134,9 +134,9 @@ class ShoppingListMessageProcessor
             return;
         }
 
-        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        $shareInfo = $shoppingList->shareInfo;
         if(!is_null($shareInfo)) {
-            $shoppingList = ShoppingList::find($shareInfo->ref_shopping_list_id);
+            $shoppingList = $shareInfo->refShoppingList;
         }
 
         $returnText = $this->formatListItems($shoppingList);
@@ -163,7 +163,7 @@ class ShoppingListMessageProcessor
             return;
         }
 
-        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        $shareInfo = $shoppingList->shareInfo;
         if(!is_null($shareInfo)) {
             $this->sendReplyMessage('共有リストのクリアはできません');
             return;
@@ -181,19 +181,20 @@ class ShoppingListMessageProcessor
             return;
         }
 
-        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        $shareInfo = $shoppingList->shareInfo;
         if(!is_null($shareInfo)) {
-            $refShoppingList = ShoppingList::find($shareInfo->ref_shopping_list_id);
+            $refShoppingList = $shoppingList = $shareInfo->refShoppingList;
             $this->sendPushMessage($refShoppingList->userid, 'リスト' . $refShoppingList->number . '（公開中）の共有が解除されました');
             $shareInfo->delete();
             $this->sendReplyMessage('共有を解除しました');
             return;
         }
 
-        $shareInfos = ShoppingListShareInfo::where('ref_shopping_list_id', $shoppingList->id)->get();
+        
+        $shareInfos = $shoppingList->refShareInfos;
         if(!$shareInfos->isEmpty()) {
             foreach($shareInfos as $shareInfo) {
-                $refByShoppingList = ShoppingList::find($shareInfo->shopping_list_id);
+                $refByShoppingList = $shoppingList = $shareInfo->shoppingList;
                 $this->sendPushMessage($refByShoppingList->userid, 'リスト' . $refByShoppingList->number . '（参照中）の共有が解除されました');
                 $shareInfo->delete();
             }
@@ -206,7 +207,7 @@ class ShoppingListMessageProcessor
 
     function processShareMessage() {
         $shoppingList = $this->getActiveShoppingListOrCreate();
-        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        $shareInfo = $shoppingList->shareInfo;
         if(!is_null($shareInfo)) {
             $this->sendReplyMessage('共有リストは共有できません');
             return;
@@ -245,9 +246,9 @@ class ShoppingListMessageProcessor
             return;
         }
 
-        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        $shareInfo = $shoppingList->shareInfo;
         if(!is_null($shareInfo)) {
-            $shoppingListToUpdate = ShoppingList::find($shareInfo->ref_shopping_list_id);
+            $shoppingListToUpdate = $shareInfo->refShoppingList;
         } else {
             $shoppingListToUpdate = $shoppingList;
         }
@@ -274,13 +275,13 @@ class ShoppingListMessageProcessor
 
     function processPasscode($text) {
         $shoppingList = $this->getActiveShoppingListOrCreate();
-        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        $shareInfo = $shoppingList->shareInfo;
         if(!is_null($shareInfo)) {
             $this->sendReplyMessage("共有リストを使用（参照）中です\n解除するか他のリストを選択してください");
             return;
         }
-        $shareInfo = ShoppingListShareInfo::where('ref_shopping_list_id', $shoppingList->id)->first();
-        if(!is_null($shareInfo)) {
+        $shareInfos = $shoppingList->refShareInfos;
+        if(!$shareInfos->isEmpty()) {
             $this->sendReplyMessage("リストが共有（公開）されているため設定できません\n解除するか他のリストを選択してください");
             return;
         }
@@ -398,9 +399,9 @@ class ShoppingListMessageProcessor
         $pushTest = "リストが更新されました\n";
 
         // when this is refering to shared list
-        $shareInfo = ShoppingListShareInfo::where('shopping_list_id', $shoppingList->id)->first();
+        $shareInfo = $shoppingList->shareInfo;
         if(!is_null($shareInfo)) {
-            $refShoppingList =  ShoppingList::find($shareInfo->ref_shopping_list_id);
+            $refShoppingList =  $shareInfo->refShoppingList;
             if($refShoppingList->is_active) {
                 $pushTest .= $this->formatListItems($refShoppingList);
                 $this->sendPushMessage($refShoppingList->userid, $pushTest);
@@ -410,9 +411,9 @@ class ShoppingListMessageProcessor
 
         // when this list is referred by other users
         $pushTest .= $this->formatListItems($shoppingList);
-        $shareInfos = ShoppingListShareInfo::where('ref_shopping_list_id', $shoppingList->id)->get();
+        $shareInfos = $shoppingList->refShareInfos;
         foreach($shareInfos as $shareInfo) {
-            $refByShoppingList =  ShoppingList::find($shareInfo->shopping_list_id);
+            $refByShoppingList =  $shareInfo->shoppingList;
             if($refByShoppingList->is_active) {
                 $this->sendPushMessage($refByShoppingList->userid, $pushTest);
             }
