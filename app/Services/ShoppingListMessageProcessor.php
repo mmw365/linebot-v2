@@ -117,6 +117,11 @@ class ShoppingListMessageProcessor
         $shoppingList = $this->getActiveShoppingListOrCreate($this->userId);
         $itemNumber = $this->getNextShoppingListItemNumber($shoppingList);
 
+        $shareInfo = $shoppingList->shareInfo;
+        if(!is_null($shareInfo)) {
+            $shoppingList = $shareInfo->refShoppingList;
+        }
+
         ShoppingListItem::create([
             'shopping_list_id' => $shoppingList->id,
             'number' => $itemNumber,
